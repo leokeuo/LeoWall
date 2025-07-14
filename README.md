@@ -29,9 +29,10 @@ To quickly install LeoWall, run the following:
 
 ## 🚀 Installation
 
+Copy and run the following command:
+
 ```bash
 git clone https://github.com/leokeuo/LeoWall.git && cd LeoWall && chmod +x leowall.sh && sudo ./leowall.sh
-
 
 🧑‍💻 Usage
 
