@@ -24,28 +24,44 @@ show_logo() {
     echo "${RESET}"
 }
 
-# ========== INSTALL PSAD ==========
+show_tip() {
+    echo
+    echo -n "${YELLOW}💡 Tip: You can run this script anytime via: ${GREEN}sudo leowall"
+    sleep 1
+    echo -n "."
+    sleep 1
+    echo -n "."
+    sleep 1
+    echo -e ".${RESET}"
+    sleep 1
+    echo
+}
+
+# ========== INSTALL TO /usr/local/bin ==========
+install_to_bin() {
+    cp "$0" /usr/local/bin/leowall
+    chmod +x /usr/local/bin/leowall
+}
+
+# ========== PSAD INSTALL ==========
 install_psad() {
     show_logo
-    echo "${BLUE}🔧 Installing psad and iptables-persistent...${RESET}"
+    echo "${BLUE}📦 Installing psad...${RESET}"
     sudo apt update
     sudo apt install -y psad iptables-persistent
 
-    echo "${BLUE}🔄 Updating PSAD signatures...${RESET}"
-    sudo psad --sig-update
-
-    echo "${BLUE}⚙️ Configuring iptables logging for PSAD...${RESET}"
     sudo iptables -A INPUT -j LOG --log-prefix "PSAD: " --log-level 4
 
-    echo "${BLUE}🚀 Restarting psad service...${RESET}"
+    sudo psad --sig-update
+    sudo psad -R
+    sudo psad -H
     sudo systemctl restart psad
     sudo systemctl enable psad
 
-    echo "${GREEN}✅ PSAD installed and logging enabled (without config changes).${RESET}"
-    sleep 2
+    echo "${GREEN}✅ PSAD installed and logging enabled.${RESET}"
 }
 
-# ========== FIREWALL SETUP ==========
+# ========== FIREWALL FUNCTIONS ==========
 setup_firewall() {
     show_logo
     echo "${YELLOW}💬 Enter allowed TCP ports (space-separated)."
@@ -54,7 +70,6 @@ setup_firewall() {
 
     OPEN_PORTS=(22 "${USER_PORTS[@]}")
 
-    echo "${BLUE}🚿 Flushing existing rules...${RESET}"
     iptables -F
     iptables -X
     iptables -t nat -F
@@ -76,69 +91,56 @@ setup_firewall() {
     done
 
     iptables-save > /etc/iptables/rules.v4
-    echo "${GREEN}✅ Firewall rules saved permanently.${RESET}"
+    echo "${GREEN}✅ Rules saved.${RESET}"
 }
 
-# ========== MODIFY FIREWALL ==========
 add_port() {
     show_logo
     read -p "➕ Enter TCP port to allow: " port
     if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -le 65535 ]; then
-        iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null
-        if [ $? -eq 0 ]; then
-            echo "${YELLOW}⚠️ Port $port is already allowed.${RESET}"
-        else
+        iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || {
             iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
             iptables-save > /etc/iptables/rules.v4
-            echo "${GREEN}✔️ Port $port has been allowed and saved.${RESET}"
-        fi
+            echo "${GREEN}✔️ Port $port added.${RESET}"
+        }
     else
-        echo "${RED}❌ Invalid port number.${RESET}"
+        echo "${RED}❌ Invalid port.${RESET}"
     fi
 }
 
 remove_port() {
     show_logo
     read -p "➖ Enter TCP port to remove: " port
-    if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -le 65535 ]; then
-        iptables -D INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null
-        iptables-save > /etc/iptables/rules.v4
-        echo "${GREEN}✔️ Port $port removed and rules saved.${RESET}"
-    else
-        echo "${RED}❌ Invalid port number.${RESET}"
-    fi
+    iptables -D INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null
+    iptables-save > /etc/iptables/rules.v4
+    echo "${GREEN}✔️ Port $port removed.${RESET}"
 }
 
-# ========== OTHER ACTIONS ==========
 reset_firewall() {
     show_logo
-    echo "${YELLOW}⚠️ Resetting firewall to open everything...${RESET}"
-
     iptables -F
     iptables -X
     iptables -t nat -F
     iptables -t nat -X
     iptables -t mangle -F
     iptables -t mangle -X
-
     iptables -P INPUT ACCEPT
     iptables -P FORWARD ACCEPT
     iptables -P OUTPUT ACCEPT
-
     iptables-save > /etc/iptables/rules.v4
-    echo "${GREEN}✅ All rules flushed. Everything is now open.${RESET}"
+    echo "${GREEN}✅ Firewall reset. All traffic allowed.${RESET}"
 }
 
 show_ports() {
     show_logo
-    echo "${CYAN}🔍 Services currently listening on ports:${RESET}"
+    echo "${CYAN}🔍 Listening services:${RESET}"
     ss -tuln
 }
 
 show_iptables() {
     show_logo
-    echo "${CYAN}📜 Allowed TCP ports in iptables:${RESET}"
-    iptables -S | grep -- '--dport' || echo "${YELLOW}⚠️ No specific ports allowed yet.${RESET}"
+    echo "${CYAN}📜 Current allowed TCP ports:${RESET}"
+    iptables -S | grep -- '--dport' || echo "${YELLOW}⚠️ No ports allowed yet.${RESET}"
 }
 
 block_ip() {
@@ -152,15 +154,17 @@ block_ip() {
 unblock_ip() {
     show_logo
     read -p "✅ Enter IP to unblock: " ip
-    iptables -D INPUT -s "$ip" -j DROP 2>/dev/null && \
-    iptables-save > /etc/iptables/rules.v4 && \
-    echo "${GREEN}✔️ Unblocked IP: $ip${RESET}" || \
-    echo "${YELLOW}⚠️ IP not found in block list.${RESET}"
+    iptables -D INPUT -s "$ip" -j DROP 2>/dev/null
+    iptables-save > /etc/iptables/rules.v4
+    echo "${GREEN}✔️ Unblocked IP: $ip${RESET}"
 }
 
-# ========== MAIN MENU ==========
+# ========== MAIN ==========
+install_to_bin
+show_logo
+show_tip
+
 while true; do
-    show_logo
     echo "${MAGENTA}${BOLD}📋 MAIN MENU:${RESET}"
     echo "${MAGENTA}══════════════════════════════════════════════${RESET}"
     echo "  ${CYAN}1)${RESET} 🔐 Set up firewall (allow selected TCP ports)"
@@ -172,7 +176,7 @@ while true; do
     echo "  ${CYAN}7)${RESET} ✅ Unblock an IP address"
     echo "  ${CYAN}8)${RESET} 🔄 Reset firewall (clear all rules)"
     echo "  ${CYAN}9)${RESET} 🔥 Install PSAD + enable logging (no config changes)"
-    echo "  ${CYAN}0)${RESET} ❎ Exit and close manager"
+    echo "  ${CYAN}0)${RESET} ❎ Exit"
     echo "${MAGENTA}══════════════════════════════════════════════${RESET}"
     read -p "👉 Select an option: " choice
 
@@ -187,9 +191,8 @@ while true; do
         8) reset_firewall ;;
         9) install_psad ;;
         0) echo "${BLUE}👋 Goodbye from LeoWall!${RESET}"; exit 0 ;;
-        *) echo "${RED}❌ Invalid option. Please try again.${RESET}" ;;
+        *) echo "${RED}❌ Invalid option. Try again.${RESET}" ;;
     esac
-
     echo
     read -p "🔁 Press Enter to return to menu..."
 done
