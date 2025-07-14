@@ -26,8 +26,11 @@ Root or sudo privileges
 git clone https://github.com/leokeuo/LeoWall.git
 
 cd LeoWall
+
 chmod +x leowall.sh
+
 sudo ./leowall.sh
+
 
 🧑‍💻 Usage
 
