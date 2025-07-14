@@ -23,13 +23,12 @@ bash, iptables, iptables-persistent, psad
 Root or sudo privileges
 🚀 Installation
 
-git clone https://github.com/leokeuo/LeoWall.git
+## 🔥 LeoWall Installation
 
-cd LeoWall
+To quickly install LeoWall, run the following:
 
-chmod +x leowall.sh
-
-sudo ./leowall.sh
+```bash
+git clone https://github.com/leokeuo/LeoWall.git && cd LeoWall && chmod +x leowall.sh && sudo ./leowall.sh
 
 
 🧑‍💻 Usage
