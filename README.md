@@ -32,4 +32,4 @@ It's designed for sysadmins who want fast, secure, and visual control over TCP f
 Copy and run the following command:
 
 ```bash
-git clone https://github.com/leokeuo/LeoWall.git && cd leowall && chmod +x leowall.sh && sudo ./leowall.sh
+git clone https://github.com/leokeuo/LeoWall.git && cd LeoWall && chmod +x leowall.sh && sudo ./leowall.sh
