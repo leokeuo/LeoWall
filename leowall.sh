@@ -49,27 +49,29 @@ install_psad() {
     echo "${BLUE}📦 Installing psad...${RESET}"
     sudo apt update
     sudo apt install -y psad iptables-persistent
-
     sudo iptables -A INPUT -j LOG --log-prefix "PSAD: " --log-level 4
-
     sudo psad --sig-update
     sudo psad -R
     sudo psad -H
     sudo systemctl restart psad
     sudo systemctl enable psad
-
     echo "${GREEN}✅ PSAD installed and logging enabled.${RESET}"
 }
 
-# ========== FIREWALL FUNCTIONS ==========
+# ========== FIREWALL SETUP ==========
 setup_firewall() {
     show_logo
     echo "${YELLOW}💬 Enter allowed TCP ports (space-separated)."
-    echo "ℹ️ SSH (22) will be opened by default.${RESET}"
-    read -p "✅ Ports: " -a USER_PORTS
+    echo "ℹ️ SSH (22) will be allowed by default.${RESET}"
+    read -p "✅ TCP Ports: " -a TCP_USER
 
-    OPEN_PORTS=(22 "${USER_PORTS[@]}")
+    echo "${YELLOW}💬 Enter allowed UDP ports (space-separated), or leave blank for none.${RESET}"
+    read -p "✅ UDP Ports: " -a UDP_USER
 
+    TCP_OPEN=(22 "${TCP_USER[@]}")
+    UDP_OPEN=("${UDP_USER[@]}")
+
+    echo "${BLUE}🚿 Flushing existing rules...${RESET}"
     iptables -F
     iptables -X
     iptables -t nat -F
@@ -85,35 +87,48 @@ setup_firewall() {
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
     echo "${GREEN}✅ Opening TCP ports:${RESET}"
-    for port in "${OPEN_PORTS[@]}"; do
+    for port in "${TCP_OPEN[@]}"; do
         iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
         echo "   → TCP port ${GREEN}$port${RESET} allowed"
     done
 
+    if [[ ${#UDP_OPEN[@]} -gt 0 ]]; then
+        echo "${GREEN}✅ Opening UDP ports:${RESET}"
+        for port in "${UDP_OPEN[@]}"; do
+            iptables -A INPUT -p udp --dport "$port" -j ACCEPT
+            echo "   → UDP port ${GREEN}$port${RESET} allowed"
+        done
+    fi
+
+    iptables -A INPUT -p udp -j DROP
+
     iptables-save > /etc/iptables/rules.v4
-    echo "${GREEN}✅ Rules saved.${RESET}"
+    echo "${GREEN}✅ Rules saved and UDP restricted.${RESET}"
 }
 
+# ========== OTHER ACTIONS ==========
 add_port() {
     show_logo
-    read -p "➕ Enter TCP port to allow: " port
-    if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -le 65535 ]; then
-        iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || {
-            iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+    read -p "➕ Enter protocol (tcp/udp): " proto
+    read -p "➕ Enter port to allow: " port
+    if [[ "$port" =~ ^[0-9]+$ ]] && [[ "$proto" =~ ^(tcp|udp)$ ]]; then
+        iptables -C INPUT -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null || {
+            iptables -A INPUT -p "$proto" --dport "$port" -j ACCEPT
             iptables-save > /etc/iptables/rules.v4
-            echo "${GREEN}✔️ Port $port added.${RESET}"
+            echo "${GREEN}✔️ $proto port $port allowed.${RESET}"
         }
     else
-        echo "${RED}❌ Invalid port.${RESET}"
+        echo "${RED}❌ Invalid input.${RESET}"
     fi
 }
 
 remove_port() {
     show_logo
-    read -p "➖ Enter TCP port to remove: " port
-    iptables -D INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null
+    read -p "➖ Enter protocol (tcp/udp): " proto
+    read -p "➖ Enter port to remove: " port
+    iptables -D INPUT -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null
     iptables-save > /etc/iptables/rules.v4
-    echo "${GREEN}✔️ Port $port removed.${RESET}"
+    echo "${GREEN}✔️ $proto port $port removed.${RESET}"
 }
 
 reset_firewall() {
@@ -133,13 +148,13 @@ reset_firewall() {
 
 show_ports() {
     show_logo
-    echo "${CYAN}🔍 Listening services:${RESET}"
-    ss -tuln
+    echo "${CYAN}🔍 Real accessible open ports (LISTEN + reachable):${RESET}"
+    ss -tuln | grep -E 'LISTEN|UNCONN' | grep -v 127.0.0.1 | grep -v '\[::1\]' || echo "${YELLOW}⚠️ No reachable open ports found.${RESET}"
 }
 
 show_iptables() {
     show_logo
-    echo "${CYAN}📜 Current allowed TCP ports:${RESET}"
+    echo "${CYAN}📜 Current allowed ports:${RESET}"
     iptables -S | grep -- '--dport' || echo "${YELLOW}⚠️ No ports allowed yet.${RESET}"
 }
 
@@ -167,15 +182,15 @@ show_tip
 while true; do
     echo "${MAGENTA}${BOLD}📋 MAIN MENU:${RESET}"
     echo "${MAGENTA}══════════════════════════════════════════════${RESET}"
-    echo "  ${CYAN}1)${RESET} 🔐 Set up firewall (allow selected TCP ports)"
-    echo "  ${CYAN}2)${RESET} ➕ Add a new allowed TCP port"
-    echo "  ${CYAN}3)${RESET} ➖ Remove allowed TCP port"
-    echo "  ${CYAN}4)${RESET} 📡 Show open ports (listening services)"
-    echo "  ${CYAN}5)${RESET} 📜 Show allowed TCP ports in iptables"
-    echo "  ${CYAN}6)${RESET} 🚫 Block an IP address"
-    echo "  ${CYAN}7)${RESET} ✅ Unblock an IP address"
-    echo "  ${CYAN}8)${RESET} 🔄 Reset firewall (clear all rules)"
-    echo "  ${CYAN}9)${RESET} 🔥 Install PSAD + enable logging (no config changes)"
+    echo "  ${CYAN}1)${RESET} 🔐 Set up firewall (TCP & UDP)"
+    echo "  ${CYAN}2)${RESET} ➕ Add allowed port (tcp/udp)"
+    echo "  ${CYAN}3)${RESET} ➖ Remove allowed port (tcp/udp)"
+    echo "  ${CYAN}4)${RESET} 📡 Show real open ports"
+    echo "  ${CYAN}5)${RESET} 📜 Show iptables rules"
+    echo "  ${CYAN}6)${RESET} 🚫 Block an IP"
+    echo "  ${CYAN}7)${RESET} ✅ Unblock an IP"
+    echo "  ${CYAN}8)${RESET} 🔄 Reset firewall"
+    echo "  ${CYAN}9)${RESET} 🔥 Install PSAD (no config changes)"
     echo "  ${CYAN}0)${RESET} ❎ Exit"
     echo "${MAGENTA}══════════════════════════════════════════════${RESET}"
     read -p "👉 Select an option: " choice
