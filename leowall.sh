@@ -30,7 +30,7 @@ show_logo() {
     echo "   ███████╗███████╗╚██████╔╝╚███╔███╔╝██║  ██║███████╗███████╗"
     echo "   ╚══════╝╚══════╝ ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝"
     echo "${RESET}"
-    echo "          ${BOLD}🔥 LEO-KEUO FIREWALL MANAGER 🔥${RESET}"
+    echo "          ${BOLD}🔥 NEXT-GEN FIREWALL MANAGER 🔥${RESET}"
     echo
 }
 
@@ -271,27 +271,68 @@ show_ports() {
     
     echo "${GREEN}${BOLD}TCP Ports:${RESET}"
     ss -tuln | grep 'tcp' | awk '{print $5}' | awk -F':' '{print $NF}' | sort -nu | while read port; do
-        printf "  ${BLUE}└─${CYAN} Port ${GREEN}%-5s ${BLUE}(${WHITE}%s${BLUE})${RESET}\n" "$port" "$(grep "$port/tcp" /etc/services | awk '{print $1}' | head -1)"
+        service_name=$(grep "$port/tcp" /etc/services | awk '{print $1}' | head -1)
+        printf "  ${BLUE}└─${CYAN} Port ${GREEN}%-5s ${BLUE}(${WHITE}%s${BLUE})${RESET}\n" "$port" "${service_name:-Unknown}"
     done
     
     echo
     echo "${GREEN}${BOLD}UDP Ports:${RESET}"
     ss -tuln | grep 'udp' | awk '{print $5}' | awk -F':' '{print $NF}' | sort -nu | while read port; do
-        printf "  ${BLUE}└─${CYAN} Port ${GREEN}%-5s ${BLUE}(${WHITE}%s${BLUE})${RESET}\n" "$port" "$(grep "$port/udp" /etc/services | awk '{print $1}' | head -1)"
+        service_name=$(grep "$port/udp" /etc/services | awk '{print $1}' | head -1)
+        printf "  ${BLUE}└─${CYAN} Port ${GREEN}%-5s ${BLUE}(${WHITE}%s${BLUE})${RESET}\n" "$port" "${service_name:-Unknown}"
     done
 }
 
-# ========== SHOW IPTABLES RULES ==========
+# ========== SHOW IPTABLES RULES (IMPROVED) ==========
 show_iptables() {
     show_logo
     echo "${YELLOW}${BOLD}📜 IPTABLES RULES${RESET}"
     echo "${BLUE}┌────────────────────────────────────────────────────┐${RESET}"
-    echo "${BLUE}│ ${WHITE}Listing current firewall rules...                 ${BLUE}│${RESET}"
+    echo "${BLUE}│ ${WHITE}Displaying current firewall rules...               ${BLUE}│${RESET}"
     echo "${BLUE}└────────────────────────────────────────────────────┘${RESET}"
     echo
     
-    echo "${GREEN}${BOLD}Current Rules:${RESET}"
-    iptables -L -n -v --line-numbers | sed 's/^/  /'
+    # Show summary
+    echo "${GREEN}${BOLD}🔹 Firewall Status Summary:${RESET}"
+    echo "${BLUE}┌──────────────────────┬────────────────────────────┐${RESET}"
+    printf "${BLUE}│ ${CYAN}%-20s ${BLUE}│ ${GREEN}%-26s ${BLUE}│${RESET}\n" "Input Chain" "$(iptables -S INPUT | grep -c '^-A') rule(s)"
+    printf "${BLUE}│ ${CYAN}%-20s ${BLUE}│ ${GREEN}%-26s ${BLUE}│${RESET}\n" "Output Chain" "$(iptables -S OUTPUT | grep -c '^-A') rule(s)"
+    printf "${BLUE}│ ${CYAN}%-20s ${BLUE}│ ${GREEN}%-26s ${BLUE}│${RESET}\n" "Forward Chain" "$(iptables -S FORWARD | grep -c '^-A') rule(s)"
+    echo "${BLUE}└──────────────────────┴────────────────────────────┘${RESET}"
+    echo
+    
+    # Display rules in grouped format
+    echo "${GREEN}${BOLD}🔹 INPUT Chain Rules:${RESET}"
+    echo "  ┌─────────┬──────────┬──────────┬──────────────┬────────────┬────────────────┬──────────────┐"
+    echo "  │ Number  │ Packets  │ Bytes    │ Protocol     │ Target     │ Source         │ Destination  │"
+    echo "  ├─────────┼──────────┼──────────┼──────────────┼────────────┼────────────────┼──────────────┤"
+    iptables -L INPUT -n -v --line-numbers | tail -n+3 | grep -v '^$' | while read line; do
+        fields=($line)
+        printf "  │ %-7s │ %-8s │ %-8s │ %-12s │ %-10s │ %-14s │ %-12s │\n" \
+               "${fields[0]}" "${fields[1]}" "${fields[2]}" "${fields[3]}" \
+               "${fields[4]}" "${fields[7]}" "${fields[8]}"
+    done
+    echo "  └─────────┴──────────┴──────────┴──────────────┴────────────┴────────────────┴──────────────┘"
+    
+    echo
+    echo "${GREEN}${BOLD}🔹 OUTPUT Chain Rules:${RESET}"
+    echo "  ┌─────────┬──────────┬──────────┬──────────────┬────────────┬────────────────┬──────────────┐"
+    echo "  │ Number  │ Packets  │ Bytes    │ Protocol     │ Target     │ Source         │ Destination  │"
+    echo "  ├─────────┼──────────┼──────────┼──────────────┼────────────┼────────────────┼──────────────┤"
+    iptables -L OUTPUT -n -v --line-numbers | tail -n+3 | grep -v '^$' | while read line; do
+        fields=($line)
+        printf "  │ %-7s │ %-8s │ %-8s │ %-12s │ %-10s │ %-14s │ %-12s │\n" \
+               "${fields[0]}" "${fields[1]}" "${fields[2]}" "${fields[3]}" \
+               "${fields[4]}" "${fields[7]}" "${fields[8]}"
+    done
+    echo "  └─────────┴──────────┴──────────┴──────────────┴────────────┴────────────────┴──────────────┘"
+    
+    echo
+    echo "${YELLOW}${BOLD}💡 Key:${RESET}"
+    echo "  - ${CYAN}ACCEPT${RESET}: Allow traffic"
+    echo "  - ${RED}DROP${RESET}: Block traffic"
+    echo "  - ${GREEN}LOG${RESET}: Log traffic"
+    echo "  - ${MAGENTA}REJECT${RESET}: Reject with response"
 }
 
 # ========== BLOCK IP ==========
@@ -310,7 +351,7 @@ block_ip() {
     iptables-save > /etc/iptables/rules.v4
     
     echo
-    echo "${GREEN}${BOLD}✅ IP BLOCKED SUCCESSFULLY${RESET}"
+    echo "${GREEN}${BOLD}✅ IP ADDRESS BLOCKED SUCCESSFULLY${RESET}"
     echo "${BLUE}┌──────────────────────┬────────────────────────────┐${RESET}"
     printf "${BLUE}│ ${CYAN}%-20s ${BLUE}│ ${RED}%-26s ${BLUE}│${RESET}\n" "Blocked IP" "$ip"
     echo "${BLUE}└──────────────────────┴────────────────────────────┘${RESET}"
@@ -332,7 +373,7 @@ unblock_ip() {
     iptables-save > /etc/iptables/rules.v4
     
     echo
-    echo "${GREEN}${BOLD}✅ IP UNBLOCKED SUCCESSFULLY${RESET}"
+    echo "${GREEN}${BOLD}✅ IP ADDRESS UNBLOCKED SUCCESSFULLY${RESET}"
     echo "${BLUE}┌──────────────────────┬────────────────────────────┐${RESET}"
     printf "${BLUE}│ ${CYAN}%-20s ${BLUE}│ ${GREEN}%-26s ${BLUE}│${RESET}\n" "Unblocked IP" "$ip"
     echo "${BLUE}└──────────────────────┴────────────────────────────┘${RESET}"
@@ -364,12 +405,12 @@ setup_logging() {
         1)
             iptables -A LOGGING -j LOG --log-prefix "IPTables-Dropped: " --log-level 4
             iptables -A LOGGING -j DROP
-            echo "${GREEN}✅ Logging all dropped packets${RESET}"
+            echo "${GREEN}✅ Logging all dropped packets enabled${RESET}"
             ;;
         2)
             iptables -A LOGGING -p tcp --dport 22 -j LOG --log-prefix "SSH-Attempt: " --log-level 4
             iptables -A LOGGING -p tcp --dport 22 -j DROP
-            echo "${GREEN}✅ Logging SSH drop attempts${RESET}"
+            echo "${GREEN}✅ Logging failed SSH attempts enabled${RESET}"
             ;;
         3)
             read -p "➤ Enter protocol (tcp/udp): " log_proto
