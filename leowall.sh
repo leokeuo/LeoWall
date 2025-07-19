@@ -30,7 +30,7 @@ show_logo() {
     echo "   ███████╗███████╗╚██████╔╝╚███╔███╔╝██║  ██║███████╗███████╗"
     echo "   ╚══════╝╚══════╝ ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝"
     echo "${RESET}"
-    echo "          ${BOLD}🔥 LEO-KEUO FIREWALL MANAGER 🔥${RESET}"
+    echo "          ${BOLD}🔥 NEXT-GEN FIREWALL MANAGER 🔥${RESET}"
     echo
 }
 
@@ -127,7 +127,7 @@ setup_firewall() {
     # Set default policies
     iptables -P INPUT DROP
     iptables -P FORWARD DROP
-    iptables -P OUTPUT DROP  # Strict outbound control
+    iptables -P OUTPUT ACCEPT  # Changed to ACCEPT for full outbound access
 
     # Base rules
     iptables -A INPUT -i lo -j ACCEPT
@@ -135,39 +135,8 @@ setup_firewall() {
     
     # Allow established/related connections
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-    # ===== ESSENTIAL OUTBOUND RULES =====
-    # DNS (UDP and TCP)
-    iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
-    iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
-    
-    # HTTP/HTTPS
-    iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
-    iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
-    
-    # System updates (root user only)
-    iptables -A OUTPUT -p tcp --dport 80 -m owner --uid-owner 0 -j ACCEPT
-    iptables -A OUTPUT -p tcp --dport 443 -m owner --uid-owner 0 -j ACCEPT
-    
-    # NTP (Time sync)
-    iptables -A OUTPUT -p udp --dport 123 -j ACCEPT
-    
-    # Ping (ICMP)
-    iptables -A OUTPUT -p icmp --icmp-type echo-request -j ACCEPT
-    
-    # SSH (for outgoing connections)
-    iptables -A OUTPUT -p tcp --dport 22 -j ACCEPT
-
-    # ===== CUSTOM PORTS (62050, 62051) ===== [ADDED]
-    iptables -A OUTPUT -p tcp --dport 62050 -j ACCEPT
-    iptables -A OUTPUT -p tcp --dport 62051 -j ACCEPT
-    iptables -A OUTPUT -p udp --dport 62050 -j ACCEPT
-    iptables -A OUTPUT -p udp --dport 62051 -j ACCEPT
-    iptables -A OUTPUT -p tcp --dport 8080 -j ACCEPT
-    iptables -A OUTPUT -p udp --dport 8080 -j ACCEPT
-    
-    # ===== USER-DEFINED INPUT RULES =====
+    # ===== ALLOWED PORTS =====
     echo "${GREEN}${BOLD}🔓 ALLOWED PORTS:${RESET}"
     echo "${BLUE}┌──────────────────────┬────────────────────────────┐${RESET}"
     for port in "${ALLOWED_TCP[@]}"; do
@@ -191,7 +160,7 @@ setup_firewall() {
     iptables-save > /etc/iptables/rules.v4
     
     echo "${GREEN}${BOLD}✅ Firewall configured successfully!${RESET}"
-    echo "${YELLOW}ℹ️ Outbound traffic is now securely controlled${RESET}"
+    echo "${YELLOW}ℹ️ Outbound traffic is now completely open${RESET}"
 }
 
 # ========== ADD PORT ==========
@@ -483,6 +452,14 @@ reset_iptables() {
     fi
 }
 
+# ========== MANAGE OUTBOUND ==========
+manage_outbound() {
+    show_logo
+    echo "${YELLOW}${BOLD}ℹ️ Outbound traffic management is disabled${RESET}"
+    echo "${GREEN}All outbound traffic is allowed by default${RESET}"
+    sleep 2
+}
+
 # ========== MAIN MENU ==========
 main_menu() {
     while true; do
@@ -499,7 +476,7 @@ main_menu() {
         printf "${BLUE}│ ${CYAN}5) ${WHITE}%-42s ${BLUE}│${RESET}\n" "View Firewall Rules"
         printf "${BLUE}│ ${CYAN}6) ${WHITE}%-42s ${BLUE}│${RESET}\n" "Block IP Address"
         printf "${BLUE}│ ${CYAN}7) ${WHITE}%-42s ${BLUE}│${RESET}\n" "Unblock IP Address"
-        printf "${BLUE}│ ${CYAN}8) ${WHITE}%-42s ${BLUE}│${RESET}\n" "Install PSAD"
+        printf "${BLUE}│ ${CYAN}8) ${WHITE}%-42s ${BLUE}│${RESET}\n" "Manage Outbound Ports"
         printf "${BLUE}│ ${CYAN}9) ${WHITE}%-42s ${BLUE}│${RESET}\n" "Configure Logging"
         printf "${BLUE}│ ${CYAN}10) ${RED}%-41s ${BLUE}│${RESET}\n" "RESET ALL IPTABLES RULES"
         printf "${BLUE}│ ${CYAN}0) ${RED}%-42s ${BLUE}│${RESET}\n" "Exit"
@@ -515,7 +492,7 @@ main_menu() {
             5) show_iptables ;;
             6) block_ip ;;
             7) unblock_ip ;;
-            8) install_psad ;;
+            8) manage_outbound ;;
             9) setup_logging ;;
             10) reset_iptables ;;
             0) echo "${GREEN}${BOLD}👋 Goodbye!${RESET}"; exit 0 ;;
