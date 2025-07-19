@@ -30,7 +30,7 @@ show_logo() {
     echo "   ███████╗███████╗╚██████╔╝╚███╔███╔╝██║  ██║███████╗███████╗"
     echo "   ╚══════╝╚══════╝ ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝"
     echo "${RESET}"
-    echo "          ${BOLD}🔥 NEXT-GEN FIREWALL MANAGER 🔥${RESET}"
+    echo "          ${BOLD}🔥 LEO-KEUO FIREWALL MANAGER 🔥${RESET}"
     echo
 }
 
