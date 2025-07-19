@@ -72,7 +72,7 @@ validate_ip() {
     local ip=$1
     local stat=1
     
-    if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         OIFS=$IFS
         IFS='.'
         ip=($ip)
@@ -124,19 +124,42 @@ setup_firewall() {
     iptables -t mangle -F > /dev/null 2>&1 &
     show_progress $! "Clearing mangle rules"
     
+    # Set default policies
     iptables -P INPUT DROP
     iptables -P FORWARD DROP
-    iptables -P OUTPUT ACCEPT
+    iptables -P OUTPUT DROP  # Strict outbound control
 
+    # Base rules
     iptables -A INPUT -i lo -j ACCEPT
+    iptables -A OUTPUT -o lo -j ACCEPT
+    
+    # Allow established/related connections
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-    # Setup logging chain
-    iptables -N LOGGING > /dev/null 2>&1 || iptables -F LOGGING
-    iptables -A LOGGING -j LOG --log-prefix "IPTables-Dropped: " --log-level 4
-    iptables -A LOGGING -j DROP
-    iptables -A INPUT -j LOGGING
+    # ===== ESSENTIAL OUTBOUND RULES =====
+    # DNS (UDP and TCP)
+    iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+    iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+    
+    # HTTP/HTTPS
+    iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
+    iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
+    
+    # System updates (root user only)
+    iptables -A OUTPUT -p tcp --dport 80 -m owner --uid-owner 0 -j ACCEPT
+    iptables -A OUTPUT -p tcp --dport 443 -m owner --uid-owner 0 -j ACCEPT
+    
+    # NTP (Time sync)
+    iptables -A OUTPUT -p udp --dport 123 -j ACCEPT
+    
+    # Ping (ICMP)
+    iptables -A OUTPUT -p icmp --icmp-type echo-request -j ACCEPT
+    
+    # SSH (for outgoing connections)
+    iptables -A OUTPUT -p tcp --dport 22 -j ACCEPT
 
+    # ===== USER-DEFINED INPUT RULES =====
     echo "${GREEN}${BOLD}🔓 ALLOWED PORTS:${RESET}"
     echo "${BLUE}┌──────────────────────┬────────────────────────────┐${RESET}"
     for port in "${ALLOWED_TCP[@]}"; do
@@ -149,10 +172,18 @@ setup_firewall() {
     done
     echo "${BLUE}└──────────────────────┴────────────────────────────┘${RESET}"
 
+    # Setup logging
+    iptables -N LOGGING > /dev/null 2>&1 || iptables -F LOGGING
+    iptables -A LOGGING -j LOG --log-prefix "IPTables-Dropped: " --log-level 4
+    iptables -A LOGGING -j DROP
+    iptables -A INPUT -j LOGGING
+
+    # Save rules
     mkdir -p /etc/iptables
     iptables-save > /etc/iptables/rules.v4
     
     echo "${GREEN}${BOLD}✅ Firewall configured successfully!${RESET}"
+    echo "${YELLOW}ℹ️ Outbound traffic is now securely controlled${RESET}"
 }
 
 # ========== ADD PORT ==========
@@ -184,29 +215,6 @@ add_port() {
         return
     }
 
-    # Rate limiting
-    echo "${BLUE}┌────────────────────────────────────────────────────┐${RESET}"
-    echo "${BLUE}│ ${WHITE}Rate limiting options:                                ${BLUE}│${RESET}"
-    echo "${BLUE}└────────────────────────────────────────────────────┘${RESET}"
-    read -p "➤ Enable rate limiting? (y/n) [n]: " rate_limit
-    
-    if [[ "$rate_limit" =~ ^[yY]$ ]]; then
-        read -p "➤ Max connections per minute [60]: " rate
-        rate=${rate:-60}
-        
-        while ! [[ "$rate" =~ ^[0-9]+$ && $rate -gt 0 ]]; do
-            echo "${RED}⛔ Invalid number! Please enter a positive integer${RESET}"
-            read -p "➤ Max connections per minute [60]: " rate
-            rate=${rate:-60}
-        done
-
-        iptables -A INPUT -p $proto --dport $port -m connlimit --connlimit-above $rate -j DROP
-        iptables -A INPUT -p $proto --dport $port -m state --state NEW -m recent --set
-        iptables -A INPUT -p $proto --dport $port -m state --state NEW -m recent --update --seconds 60 --hitcount $rate -j DROP
-        
-        echo "${GREEN}${BOLD}✓ Rate limiting enabled: $rate connections/minute${RESET}"
-    fi
-
     iptables -A INPUT -p "$proto" --dport "$port" -j ACCEPT
     iptables-save > /etc/iptables/rules.v4
     
@@ -215,7 +223,6 @@ add_port() {
     echo "${BLUE}┌──────────────────────┬────────────────────────────┐${RESET}"
     printf "${BLUE}│ ${CYAN}%-20s ${BLUE}│ ${GREEN}%-26s ${BLUE}│${RESET}\n" "Protocol" "$proto"
     printf "${BLUE}│ ${CYAN}%-20s ${BLUE}│ ${GREEN}%-26s ${BLUE}│${RESET}\n" "Port Number" "$port"
-    [[ "$rate_limit" =~ ^[yY]$ ]] && printf "${BLUE}│ ${CYAN}%-20s ${BLUE}│ ${GREEN}%-26s ${BLUE}│${RESET}\n" "Rate Limit" "$rate/min"
     echo "${BLUE}└──────────────────────┴────────────────────────────┘${RESET}"
 }
 
@@ -243,12 +250,6 @@ remove_port() {
         fi
     done
 
-    # Remove rate limiting rules if they exist
-    iptables -D INPUT -p "$proto" --dport "$port" -m connlimit --connlimit-above 0 -j DROP 2>/dev/null
-    iptables -D INPUT -p "$proto" --dport "$port" -m state --state NEW -m recent --set 2>/dev/null
-    iptables -D INPUT -p "$proto" --dport "$port" -m state --state NEW -m recent --update --seconds 60 --hitcount 0 -j DROP 2>/dev/null
-    
-    # Remove main rule
     iptables -D INPUT -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null
     iptables-save > /etc/iptables/rules.v4
     
@@ -283,17 +284,16 @@ show_ports() {
     done
 }
 
-# ========== SHOW IPTABLES RULES (IMPROVED) ==========
+# ========== SHOW IPTABLES RULES ==========
 show_iptables() {
     show_logo
     echo "${YELLOW}${BOLD}📜 IPTABLES RULES${RESET}"
     echo "${BLUE}┌────────────────────────────────────────────────────┐${RESET}"
-    echo "${BLUE}│ ${WHITE}Displaying current firewall rules...               ${BLUE}│${RESET}"
+    echo "${BLUE}│ ${WHITE}Listing current firewall rules...                 ${BLUE}│${RESET}"
     echo "${BLUE}└────────────────────────────────────────────────────┘${RESET}"
     echo
     
-    # Show summary
-    echo "${GREEN}${BOLD}🔹 Firewall Status Summary:${RESET}"
+    echo "${GREEN}${BOLD}Firewall Status Summary:${RESET}"
     echo "${BLUE}┌──────────────────────┬────────────────────────────┐${RESET}"
     printf "${BLUE}│ ${CYAN}%-20s ${BLUE}│ ${GREEN}%-26s ${BLUE}│${RESET}\n" "Input Chain" "$(iptables -S INPUT | grep -c '^-A') rule(s)"
     printf "${BLUE}│ ${CYAN}%-20s ${BLUE}│ ${GREEN}%-26s ${BLUE}│${RESET}\n" "Output Chain" "$(iptables -S OUTPUT | grep -c '^-A') rule(s)"
@@ -301,38 +301,8 @@ show_iptables() {
     echo "${BLUE}└──────────────────────┴────────────────────────────┘${RESET}"
     echo
     
-    # Display rules in grouped format
-    echo "${GREEN}${BOLD}🔹 INPUT Chain Rules:${RESET}"
-    echo "  ┌─────────┬──────────┬──────────┬──────────────┬────────────┬────────────────┬──────────────┐"
-    echo "  │ Number  │ Packets  │ Bytes    │ Protocol     │ Target     │ Source         │ Destination  │"
-    echo "  ├─────────┼──────────┼──────────┼──────────────┼────────────┼────────────────┼──────────────┤"
-    iptables -L INPUT -n -v --line-numbers | tail -n+3 | grep -v '^$' | while read line; do
-        fields=($line)
-        printf "  │ %-7s │ %-8s │ %-8s │ %-12s │ %-10s │ %-14s │ %-12s │\n" \
-               "${fields[0]}" "${fields[1]}" "${fields[2]}" "${fields[3]}" \
-               "${fields[4]}" "${fields[7]}" "${fields[8]}"
-    done
-    echo "  └─────────┴──────────┴──────────┴──────────────┴────────────┴────────────────┴──────────────┘"
-    
-    echo
-    echo "${GREEN}${BOLD}🔹 OUTPUT Chain Rules:${RESET}"
-    echo "  ┌─────────┬──────────┬──────────┬──────────────┬────────────┬────────────────┬──────────────┐"
-    echo "  │ Number  │ Packets  │ Bytes    │ Protocol     │ Target     │ Source         │ Destination  │"
-    echo "  ├─────────┼──────────┼──────────┼──────────────┼────────────┼────────────────┼──────────────┤"
-    iptables -L OUTPUT -n -v --line-numbers | tail -n+3 | grep -v '^$' | while read line; do
-        fields=($line)
-        printf "  │ %-7s │ %-8s │ %-8s │ %-12s │ %-10s │ %-14s │ %-12s │\n" \
-               "${fields[0]}" "${fields[1]}" "${fields[2]}" "${fields[3]}" \
-               "${fields[4]}" "${fields[7]}" "${fields[8]}"
-    done
-    echo "  └─────────┴──────────┴──────────┴──────────────┴────────────┴────────────────┴──────────────┘"
-    
-    echo
-    echo "${YELLOW}${BOLD}💡 Key:${RESET}"
-    echo "  - ${CYAN}ACCEPT${RESET}: Allow traffic"
-    echo "  - ${RED}DROP${RESET}: Block traffic"
-    echo "  - ${GREEN}LOG${RESET}: Log traffic"
-    echo "  - ${MAGENTA}REJECT${RESET}: Reject with response"
+    echo "${GREEN}${BOLD}Detailed Rules:${RESET}"
+    iptables -L -n -v --line-numbers | sed 's/^/  /'
 }
 
 # ========== BLOCK IP ==========
