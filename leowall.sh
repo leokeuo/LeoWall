@@ -159,6 +159,14 @@ setup_firewall() {
     # SSH (for outgoing connections)
     iptables -A OUTPUT -p tcp --dport 22 -j ACCEPT
 
+    # ===== CUSTOM PORTS (62050, 62051) ===== [ADDED]
+    iptables -A OUTPUT -p tcp --dport 62050 -j ACCEPT
+    iptables -A OUTPUT -p tcp --dport 62051 -j ACCEPT
+    iptables -A OUTPUT -p udp --dport 62050 -j ACCEPT
+    iptables -A OUTPUT -p udp --dport 62051 -j ACCEPT
+    iptables -A OUTPUT -p tcp --dport 8080 -j ACCEPT
+    iptables -A OUTPUT -p udp --dport 8080 -j ACCEPT
+    
     # ===== USER-DEFINED INPUT RULES =====
     echo "${GREEN}${BOLD}🔓 ALLOWED PORTS:${RESET}"
     echo "${BLUE}┌──────────────────────┬────────────────────────────┐${RESET}"
